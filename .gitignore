@@ -2,3 +2,8 @@
 *.gz
 data/cifar-10-batches-py/
 data/cifar-100-python/
+data/
+torch_cache/
+torch_cache/hub/
+
+
