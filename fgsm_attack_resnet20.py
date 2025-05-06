@@ -6,7 +6,7 @@ import os
 from torchattacks import FGSM
 
 
-# ─── Config ────────────────────────────────────────────────────────────────────
+# Config
 model_name = 'cifar10_resnet20'
 model_dir  = './models'
 data_dir   = './data'
@@ -14,7 +14,7 @@ eps        = 8/255            # common ε for CIFAR (in [0,1] scale)
 batch_size = 128
 device     = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# ─── Load model & weights ───────────────────────────────────────────────────────
+# Load model & weights 
 model = torch.hub.load(
     'chenyaofo/pytorch-cifar-models',
     model_name,
@@ -28,7 +28,7 @@ state = torch.load(
 model.load_state_dict(state)
 model.eval()
 
-# ─── DataLoader ─────────────────────────────────────────────────────────────────
+# DataLoader for CIFAR-10 test set
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(
@@ -43,7 +43,7 @@ test_loader = torch.utils.data.DataLoader(
     test_ds, batch_size=batch_size, shuffle=False
 )
 
-# ─── FGSM function ───────────────────────────────────────────────────────────────
+# FGSM function (manual) 
 # def fgsm_attack(images, gradients, epsilon):
 #     # images: normalized inputs; gradients: ∂loss/∂images
 #     sign_grad = gradients.sign()
@@ -57,10 +57,10 @@ test_loader = torch.utils.data.DataLoader(
 #     return adv_images
 
 
-# ─── Create the FGSM attack from Torchattacks ──────────────────────────────────
+# FGSM attack from Torchattacks 
 attack = FGSM(model, eps=eps)
 
-# ─── Run attack & eval ───────────────────────────────────────────────────────────
+# Run attack & evaluate
 clean_correct = 0
 adv_correct   = 0
 total         = 0
@@ -69,12 +69,12 @@ for imgs, labels in test_loader:
     imgs, labels = imgs.to(device), labels.to(device)
     total += labels.size(0)
 
-    # —— clean accuracy —— 
+    # clean accuracy
     with torch.no_grad():
         preds = model(imgs).argmax(1)
     clean_correct += (preds == labels).sum().item()
 
-    # —— generate adversarial examples —— 
+    # generate adversarial examples  
     imgs.requires_grad_(True)
     outputs = model(imgs)
     loss    = F.cross_entropy(outputs, labels)
@@ -86,12 +86,12 @@ for imgs, labels in test_loader:
     adv_imgs = attack(imgs, labels)
     
 
-    # —— adversarial accuracy —— 
+    # adversarial accuracy
     with torch.no_grad():
         adv_preds = model(adv_imgs).argmax(1)
     adv_correct += (adv_preds == labels).sum().item()
 
-# ─── Report ─────────────────────────────────────────────────────────────────────
+# Report 
 clean_acc = 100 * clean_correct / total
 adv_acc   = 100 * adv_correct   / total
 

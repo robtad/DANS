@@ -1,0 +1,8 @@
+model,attack,clean_acc,adv_acc,attack_time_s
+cifar100_resnet20,FGSM,68.83,15.96,21.91
+cifar100_resnet32,FGSM,70.14,17.25,28.95
+cifar100_resnet44,FGSM,71.66,16.83,37.39
+cifar100_resnet56,FGSM,72.61,17.47,44.35
+cifar100_mobilenetv2_x1_4,FGSM,76.32,18.46,144.71
+cifar100_vgg16_bn,FGSM,74.0,21.66,72.91
+cifar100_vgg11_bn,FGSM,70.8,21.32,43.64

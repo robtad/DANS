@@ -3,7 +3,7 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 
-# ─── Config ────────────────────────────────────────────────────────────────────
+# Config 
 model_dir = './models'
 data_dir  = './data'
 batch_size = 128
@@ -16,7 +16,7 @@ std10  = [0.2023, 0.1994, 0.2010]
 mean100 = [0.5071, 0.4867, 0.4408]
 std100  = [0.2675, 0.2565, 0.2761]
 
-# ─── Prepare datasets ───────────────────────────────────────────────────────────
+# Prepare datasets 
 transform10 = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=mean10, std=std10)
@@ -36,7 +36,7 @@ test100 = torchvision.datasets.CIFAR100(
 loader10 = torch.utils.data.DataLoader(test10, batch_size=batch_size, shuffle=False)
 loader100 = torch.utils.data.DataLoader(test100, batch_size=batch_size, shuffle=False)
 
-# ─── Function to evaluate one model ─────────────────────────────────────────────
+# Function to evaluate one model 
 def evaluate(model_name, dataset_loader, cifar_type='10'):
     # load architecture
     model = torch.hub.load(
@@ -64,7 +64,7 @@ def evaluate(model_name, dataset_loader, cifar_type='10'):
     acc = 100 * correct / total
     print(f"{model_name:<25} CIFAR-{cifar_type}  Accuracy: {acc:5.2f}%")
 
-# ─── Run evaluations ────────────────────────────────────────────────────────────
+# Run evaluations 
 
 models = [
     'cifar10_resnet20',
