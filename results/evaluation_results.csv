@@ -1,0 +1,15 @@
+model_name,dataset,accuracy
+cifar10_resnet20,CIFAR-10,92.6
+cifar10_resnet32,CIFAR-10,93.53
+cifar10_resnet44,CIFAR-10,94.01
+cifar10_resnet56,CIFAR-10,94.37
+cifar10_mobilenetv2_x1_4,CIFAR-10,94.21
+cifar10_vgg16_bn,CIFAR-10,94.16
+cifar10_vgg11_bn,CIFAR-10,92.79
+cifar100_resnet20,CIFAR-100,68.83
+cifar100_resnet32,CIFAR-100,70.14
+cifar100_resnet44,CIFAR-100,71.66
+cifar100_resnet56,CIFAR-100,72.61
+cifar100_mobilenetv2_x1_4,CIFAR-100,76.32
+cifar100_vgg16_bn,CIFAR-100,74.0
+cifar100_vgg11_bn,CIFAR-100,70.8
