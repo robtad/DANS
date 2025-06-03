@@ -26,3 +26,9 @@
 6. **Develop and Test New Methods**
    - Develop new and improved attack and defense methods.
    - Test the new attack and defense methods for effectiveness.
+
+7. **Make csv output columns uniform 
+   - use the same samples per class
+   - add sample per class column (instead of num sample(total sample))
+   - add accuracy drop
+   - 

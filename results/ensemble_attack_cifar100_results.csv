@@ -1,0 +1,15 @@
+model,attack,clean_acc,adv_acc,acc_drop,attack_time_s,num_samples
+cifar100_resnet20,MEA,69.27,22.4,46.87,33.9,1500
+cifar100_resnet20,WEA,69.27,22.4,46.87,34.5,1500
+cifar100_resnet32,MEA,69.13,23.2,45.93,48.36,1500
+cifar100_resnet32,WEA,69.13,23.33,45.8,48.27,1500
+cifar100_resnet44,MEA,72.07,22.73,49.33,59.86,1500
+cifar100_resnet44,WEA,72.07,22.93,49.13,62.14,1500
+cifar100_resnet56,MEA,71.93,23.53,48.4,74.93,1500
+cifar100_resnet56,WEA,71.93,23.53,48.4,81.88,1500
+cifar100_mobilenetv2_x1_4,MEA,76.6,24.93,51.67,271.0,1500
+cifar100_mobilenetv2_x1_4,WEA,76.6,24.93,51.67,284.45,1500
+cifar100_vgg16_bn,MEA,72.87,27.67,45.2,142.37,1500
+cifar100_vgg16_bn,WEA,72.87,27.73,45.13,141.03,1500
+cifar100_vgg11_bn,MEA,69.8,27.27,42.53,80.56,1500
+cifar100_vgg11_bn,WEA,69.8,27.4,42.4,80.31,1500
