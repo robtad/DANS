@@ -1,0 +1,15 @@
+distilled_student_model,teacher_accuracy,student_accuracy,difference,distillation_epoch
+cifar100_resnet20_distilled.pth,68.83%,54.06%,-14.77%,30
+cifar100_resnet32_distilled.pth,70.14%,51.99%,-18.15%,30
+cifar100_resnet44_distilled.pth,71.66%,54.32%,-17.34%,30
+cifar100_resnet56_distilled.pth,72.61%,54.24%,-18.37%,30
+cifar100_mobilenetv2_x1_4_distilled.pth,76.32%,63.31%,-13.01%,30
+cifar100_vgg16_bn_distilled.pth,74.00%,39.62%,-34.38%,30
+cifar100_vgg11_bn_distilled.pth,70.80%,46.80%, -24.00%,30
+cifar10_resnet20_distilled.pth,92.60%,83.00%,-9.60%,30
+cifar10_resnet32_distilled.pth,93.53%,81.51%,-12.02%,30
+cifar10_resnet44_distilled.pth,94.01%,81.98%,-12.03%,30
+cifar10_resnet56_distilled.pth,94.37%,81.04%,-13.33%,30
+cifar10_mobilenetv2_x1_4_distilled.pth,94.21%,87.26%,-6.95%,30
+cifar10_vgg16_bn_distilled.pth,94.16%,85.02%,-9.14%,30
+cifar10_vgg11_bn_distilled.pth,92.79%,83.23%,-9.56%,30
