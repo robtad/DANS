@@ -1,6 +1,4 @@
-*.pth
 *.gz
-*.pt
 data/
 torch_cache/
 exported/
