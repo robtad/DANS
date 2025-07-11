@@ -1,66 +1,15 @@
-"""
-Complete Adversarial Attack Recreation Script
-Recreates the study from "Evaluating Pretrained Deep Learning Models for Image Classification Against Individual and Ensemble Adversarial Attacks"
-
-This script uses pre-trained distilled models from './models_distilled/' directory.
-Run the defensive distillation script first to generate the distilled models.
-"""
-
-import os
-import time
 import torch
+import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
+import os
 import pandas as pd
-import numpy as np
-from torchattacks import FGSM, PGD, BIM, DeepFool
-from multiprocessing import freeze_support
+import time
+from torchattacks import FGSM, PGD
 
-# CONFIG - Following paper parameters exactly
-MODEL_NAMES = [
-    "cifar10_resnet20", "cifar10_resnet32", "cifar10_resnet44", "cifar10_resnet56",
-    "cifar10_mobilenetv2_x1_4", "cifar10_vgg16_bn", "cifar10_vgg11_bn",
-    "cifar100_resnet20", "cifar100_resnet32", "cifar100_resnet44", "cifar100_resnet56", 
-    "cifar100_mobilenetv2_x1_4", "cifar100_vgg16_bn", "cifar100_vgg11_bn"
-]
 
-MODEL_DIR = "./models"
-DATA_DIR = "./data"
-RESULTS_DIR = "./results"
-BATCH_SIZE = 64
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-# Paper's attack parameters (ε=0.5 in pixel space = 0.5/255 in normalized space)
-EPS = 0.5 / 255.0  # Paper uses ε=0.5 in pixel space
-ALPHA_PGD = 1.0 / 255.0  # Step size of 1 in pixel space
-ALPHA_BIM = 1.0 / 255.0  # Step size of 1 in pixel space
-STEPS_PGD = 20  # Paper uses 20 iterations for PGD
-STEPS_BIM = 10  # Paper uses 10 iterations for BIM
-
-# Ensemble weights from paper
-WEA_WEIGHTS = {'FGSM': 0.4, 'PGD': 0.3, 'BIM': 0.3}
-
-os.makedirs(RESULTS_DIR, exist_ok=True)
-
-def get_dataset_params(dataset_name):
-    """Get normalization parameters for each dataset"""
-    if dataset_name == 'cifar10':
-        return {
-            'mean': [0.4914, 0.4822, 0.4465],
-            'std': [0.2023, 0.1994, 0.2010],
-            'num_classes': 10,
-            'dataset_class': torchvision.datasets.CIFAR10
-        }
-    elif dataset_name == 'cifar100':
-        return {
-            'mean': [0.5071, 0.4867, 0.4408],
-            'std': [0.2675, 0.2565, 0.2761],
-            'num_classes': 100,
-            'dataset_class': torchvision.datasets.CIFAR100
-        }
-
-def get_balanced_subset(dataset, samples_per_class, num_classes):
-    """Create balanced subset following paper methodology"""
+def get_balanced_small_subset(dataset, samples_per_class=10, num_classes=10):
+    """Get a small balanced subset for fast testing"""
     class_counts = {i: 0 for i in range(num_classes)}
     selected_indices = []
 
@@ -73,298 +22,329 @@ def get_balanced_subset(dataset, samples_per_class, num_classes):
 
     return torch.utils.data.Subset(dataset, selected_indices)
 
-def load_model(model_name):
-    """Load pre-trained model"""
-    model = torch.hub.load(
-        "chenyaofo/pytorch-cifar-models",
-        model_name,
-        pretrained=False,
-        trust_repo=True,
-    ).to(DEVICE)
-    
-    state = torch.load(
-        os.path.join(MODEL_DIR, f"{model_name}.pth"), 
-        weights_only=True
-    )
-    model.load_state_dict(state)
+
+def custom_bim_attack(model, images, labels, eps=0.5 / 255, alpha=2.0 / 255, steps=10):
+    """Custom Basic Iterative Method (BIM) attack implementation"""
     model.eval()
-    return model
 
-def create_attacks(model):
-    """Create attack instances following paper parameters"""
-    return {
-        'FGSM': FGSM(model, eps=EPS),
-        'PGD': PGD(model, eps=EPS, alpha=ALPHA_PGD, steps=STEPS_PGD),
-        'BIM': BIM(model, eps=EPS, alpha=ALPHA_BIM, steps=STEPS_BIM),
-        'DeepFool': DeepFool(model)
-    }
+    # Clone images to avoid modifying original
+    images = images.clone().detach().to(images.device)
+    labels = labels.clone().detach().to(labels.device)
 
-def ensemble_attack_mea(attacks, images, labels):
-    """Mean Ensemble Attack (MEA) - Paper equation"""
-    fgsm_adv = attacks['FGSM'](images, labels)
-    pgd_adv = attacks['PGD'](images, labels)
-    bim_adv = attacks['BIM'](images, labels)
-    
-    # MEA: average the adversarial examples
-    ensemble_adv = (fgsm_adv + pgd_adv + bim_adv) / 3.0
+    # Initialize adversarial images
+    adv_images = images.clone().detach()
+
+    for step in range(steps):
+        adv_images.requires_grad = True
+
+        # Forward pass
+        outputs = model(adv_images)
+
+        # Calculate loss
+        loss = F.cross_entropy(outputs, labels)
+
+        # Backward pass
+        loss.backward()
+
+        # Get gradients
+        grad = adv_images.grad.data
+
+        # Apply FGSM step
+        adv_images = adv_images.detach() + alpha * torch.sign(grad)
+
+        # Clip perturbation to be within eps of original image
+        delta = torch.clamp(adv_images - images, min=-eps, max=eps)
+        adv_images = torch.clamp(images + delta, min=0, max=1).detach()
+
+    return adv_images
+
+
+def ensemble_attack_mea(model, images, labels, device, eps=0.5 / 255, alpha=2.0 / 255):
+    """Mean Ensemble Attack - averages perturbations from FGSM, PGD, BIM"""
+    model.eval()
+
+    # Create individual attacks
+    fgsm = FGSM(model, eps=eps)
+    pgd = PGD(model, eps=eps, alpha=alpha, steps=20)
+
+    # Generate adversarial examples
+    fgsm_adv = fgsm(images, labels)
+    pgd_adv = pgd(images, labels)
+    bim_adv = custom_bim_attack(model, images, labels, eps=eps, alpha=alpha, steps=10)
+
+    # Calculate perturbations
+    fgsm_pert = fgsm_adv - images
+    pgd_pert = pgd_adv - images
+    bim_pert = bim_adv - images
+
+    # Mean ensemble: average the perturbations
+    mean_pert = (fgsm_pert + pgd_pert + bim_pert) / 3
+
+    # Apply averaged perturbation
+    ensemble_adv = images + mean_pert
+
+    # Clamp to valid range
+    ensemble_adv = torch.clamp(ensemble_adv, 0, 1)
+
     return ensemble_adv
 
-def ensemble_attack_wea(attacks, images, labels):
-    """Weighted Ensemble Attack (WEA) - Paper equation"""
-    fgsm_adv = attacks['FGSM'](images, labels)
-    pgd_adv = attacks['PGD'](images, labels)
-    bim_adv = attacks['BIM'](images, labels)
-    
-    # WEA: weighted combination
-    ensemble_adv = (WEA_WEIGHTS['FGSM'] * fgsm_adv + 
-                   WEA_WEIGHTS['PGD'] * pgd_adv + 
-                   WEA_WEIGHTS['BIM'] * bim_adv)
+
+def ensemble_attack_wea(model, images, labels, device, eps=0.5 / 255, alpha=2.0 / 255):
+    """Weighted Ensemble Attack - FGSM(0.4), PGD(0.3), BIM(0.3)"""
+    model.eval()
+
+    # Create individual attacks
+    fgsm = FGSM(model, eps=eps)
+    pgd = PGD(model, eps=eps, alpha=alpha, steps=20)
+
+    # Generate adversarial examples
+    fgsm_adv = fgsm(images, labels)
+    pgd_adv = pgd(images, labels)
+    bim_adv = custom_bim_attack(model, images, labels, eps=eps, alpha=alpha, steps=10)
+
+    # Weighted ensemble as per paper: FGSM(0.4), PGD(0.3), BIM(0.3)
+    ensemble_adv = 0.4 * fgsm_adv + 0.3 * pgd_adv + 0.3 * bim_adv
+
+    # Clamp to valid range
+    ensemble_adv = torch.clamp(ensemble_adv, 0, 1)
+
     return ensemble_adv
 
 
-
-def load_distilled_model(model_name):
-    """Load pre-trained distilled model"""
-    distilled_model_path = os.path.join("./models_distilled", f"{model_name}_distilled.pth")
-    
-    if not os.path.exists(distilled_model_path):
-        print(f"Warning: Distilled model not found at {distilled_model_path}")
-        return None
-    
-    # Load the distilled model architecture
-    distilled_model = torch.hub.load(
-        "chenyaofo/pytorch-cifar-models",
-        model_name,
-        pretrained=False,
-        trust_repo=True,
-    ).to(DEVICE)
-    
-    # Load the distilled weights
-    state = torch.load(distilled_model_path, map_location=DEVICE)
-    distilled_model.load_state_dict(state)
-    distilled_model.eval()
-    
-    return distilled_model
-
-def evaluate_model(model, data_loader):
-    """Evaluate model accuracy"""
-    correct = total = 0
+def evaluate_model(model, data_loader, device):
+    """Evaluate clean accuracy"""
     model.eval()
-    
+    correct = 0
+    total = 0
+
     with torch.no_grad():
         for images, labels in data_loader:
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, predicted = outputs.max(1)
+            correct += (predicted == labels).sum().item()
             total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
-    
-    return 100.0 * correct / total
 
-def run_attack_evaluation(model, attack, data_loader, attack_name):
-    """Run single attack and measure performance"""
-    correct = total = 0
-    start_time = time.time()
-    
+    return 100 * correct / total
+
+
+def evaluate_attack(
+    model, data_loader, attack, device, attack_name, eps=0.5 / 255, alpha=2.0 / 255
+):
+    """Evaluate adversarial accuracy with timing"""
     model.eval()
+    correct = 0
+    total = 0
+
+    start_time = time.time()
+
     for images, labels in data_loader:
-        images, labels = images.to(DEVICE), labels.to(DEVICE)
-        
-        if attack_name in ['MEA', 'WEA']:
-            attacks = create_attacks(model)
-            if attack_name == 'MEA':
-                adv_images = ensemble_attack_mea(attacks, images, labels)
-            else:  # WEA
-                adv_images = ensemble_attack_wea(attacks, images, labels)
+        images, labels = images.to(device), labels.to(device)
+
+        if attack_name == "MEA":
+            adv_images = ensemble_attack_mea(model, images, labels, device, eps, alpha)
+        elif attack_name == "WEA":
+            adv_images = ensemble_attack_wea(model, images, labels, device, eps, alpha)
+        elif attack_name == "BIM":
+            adv_images = custom_bim_attack(model, images, labels, eps, alpha, steps=10)
         else:
             adv_images = attack(images, labels)
-        
+
         with torch.no_grad():
             outputs = model(adv_images)
             _, predicted = outputs.max(1)
+            correct += (predicted == labels).sum().item()
             total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
-    
-    attack_time = time.time() - start_time
-    accuracy = 100.0 * correct / total
-    
-    return accuracy, attack_time, total
+
+    elapsed_time = time.time() - start_time
+    return 100 * correct / total, elapsed_time
+
+
+def get_dataset_info(dataset_name):
+    """Get dataset-specific information"""
+    if dataset_name == "cifar10":
+        return {
+            "num_classes": 10,
+            "mean": [0.4914, 0.4822, 0.4465],
+            "std": [0.2023, 0.1994, 0.2010],
+            "dataset_class": torchvision.datasets.CIFAR10,
+        }
+    else:  # cifar100
+        return {
+            "num_classes": 100,
+            "mean": [0.5071, 0.4867, 0.4408],
+            "std": [0.2675, 0.2565, 0.2761],
+            "dataset_class": torchvision.datasets.CIFAR100,
+        }
+
 
 def main():
-    # Check if distilled models directory exists
-    distilled_models_dir = "./models_distilled"
-    if not os.path.exists(distilled_models_dir):
-        print(f"Warning: Distilled models directory '{distilled_models_dir}' not found.")
-        print("Please run the defensive distillation script first to generate distilled models.")
-        print("Continuing with evaluation of original models only...")
-        evaluate_distilled = False
-    else:
-        evaluate_distilled = True
-        print(f"Found distilled models directory: {distilled_models_dir}")
-    
+    # Configuration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_dir = "./models"
+    distilled_model_dir = "./models_distilled"
+    data_dir = "./data"
+    results_dir = "./results"
+
+    print(f"Using device: {device}")
+
+    # All models to test
+    models = [
+        "cifar10_resnet20",
+        "cifar10_resnet32",
+        "cifar10_resnet44",
+        "cifar10_resnet56",
+        "cifar10_mobilenetv2_x1_4",
+        "cifar10_vgg16_bn",
+        "cifar10_vgg11_bn",
+        "cifar100_resnet20",
+        "cifar100_resnet32",
+        "cifar100_resnet44",
+        "cifar100_resnet56",
+        "cifar100_mobilenetv2_x1_4",
+        "cifar100_vgg16_bn",
+        "cifar100_vgg11_bn",
+    ]
+
+    # Paper parameters
+    eps = 0.5 / 255  # 0.5 in paper, normalized for [0,1] range
+    alpha = 2.0 / 255  # Step size
+
+    print(f"Parameters: eps={eps:.6f}, alpha={alpha:.6f}")
+
+    # Define attacks
+    attacks = {
+        "FGSM": lambda m: FGSM(m, eps=eps),
+        "PGD": lambda m: PGD(m, eps=eps, alpha=alpha, steps=20),
+        "BIM": None,  # Custom implementation
+        "MEA": None,  # Custom ensemble attack
+        "WEA": None,  # Custom ensemble attack
+    }
+
     all_results = []
-    
-    for model_name in MODEL_NAMES:
-        print(f"\n>>> Processing {model_name}")
-        
-        # Determine dataset
-        dataset_name = 'cifar10' if 'cifar10' in model_name else 'cifar100'
-        dataset_params = get_dataset_params(dataset_name)
-        
-        # Load dataset
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(dataset_params['mean'], dataset_params['std'])
-        ])
-        
-        test_dataset = dataset_params['dataset_class'](
-            root=DATA_DIR, train=False, download=True, transform=transform
+
+    for model_name in models:
+        print(f"\n{'='*60}")
+        print(f"Testing model: {model_name}")
+        print(f"{'='*60}")
+
+        # Determine dataset type
+        dataset_name = "cifar10" if "cifar10" in model_name else "cifar100"
+        dataset_info = get_dataset_info(dataset_name)
+
+        # Prepare dataset
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=dataset_info["mean"], std=dataset_info["std"]
+                ),
+            ]
         )
-        
-        # Create balanced subset (150 total samples like in existing code)
-        samples_per_class = 150 // dataset_params['num_classes']
-        if samples_per_class == 0:
-            samples_per_class = 1
-        
-        balanced_subset = get_balanced_subset(
-            test_dataset, samples_per_class, dataset_params['num_classes']
+
+        test_dataset = dataset_info["dataset_class"](
+            root=data_dir, train=False, download=True, transform=transform
         )
-        
-        data_loader = torch.utils.data.DataLoader(
-            balanced_subset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4
+
+        # Use 10 samples per class
+        samples_per_class = 10
+        test_subset = get_balanced_small_subset(
+            test_dataset, samples_per_class, dataset_info["num_classes"]
         )
-        
-        # Load model
-        model = load_model(model_name)
-        
-        # Evaluate clean accuracy
-        clean_acc = evaluate_model(model, data_loader)
-        print(f"  Clean accuracy: {clean_acc:.2f}%")
-        
-        # Create attacks
-        attacks = create_attacks(model)
-        
-        # Test individual attacks
-        for attack_name, attack in attacks.items():
-            print(f"  → Running {attack_name}", end="", flush=True)
-            adv_acc, attack_time, num_samples = run_attack_evaluation(
-                model, attack, data_loader, attack_name
+        test_loader = torch.utils.data.DataLoader(
+            test_subset, batch_size=32, shuffle=False, num_workers=0
+        )
+
+        print(f"Dataset: {dataset_name.upper()}")
+        print(f"Using {len(test_subset)} images ({samples_per_class} per class)")
+
+        # Test both original and distilled models
+        for model_type in ["original", "distilled"]:
+            model_path = os.path.join(
+                model_dir if model_type == "original" else distilled_model_dir,
+                (
+                    f"{model_name}.pth"
+                    if model_type == "original"
+                    else f"{model_name}_distilled.pth"
+                ),
             )
-            accuracy_drop = clean_acc - adv_acc
-            
-            print(f" | Acc: {adv_acc:.2f}% | Drop: {accuracy_drop:.2f}% | Time: {attack_time:.1f}s")
-            
-            all_results.append({
-                'model': model_name,
-                'dataset': dataset_name,
-                'defense': 'None',
-                'attack': attack_name,
-                'clean_acc': round(clean_acc, 2),
-                'adv_acc': round(adv_acc, 2),
-                'accuracy_drop': round(accuracy_drop, 2),
-                'attack_time_s': round(attack_time, 2),
-                'num_samples': num_samples
-            })
-        
-        # Test ensemble attacks
-        for ensemble_name in ['MEA', 'WEA']:
-            print(f"  → Running {ensemble_name}", end="", flush=True)
-            adv_acc, attack_time, num_samples = run_attack_evaluation(
-                model, None, data_loader, ensemble_name
-            )
-            accuracy_drop = clean_acc - adv_acc
-            
-            print(f" | Acc: {adv_acc:.2f}% | Drop: {accuracy_drop:.2f}% | Time: {attack_time:.1f}s")
-            
-            all_results.append({
-                'model': model_name,
-                'dataset': dataset_name,
-                'defense': 'None',
-                'attack': ensemble_name,
-                'clean_acc': round(clean_acc, 2),
-                'adv_acc': round(adv_acc, 2),
-                'accuracy_drop': round(accuracy_drop, 2),
-                'attack_time_s': round(attack_time, 2),
-                'num_samples': num_samples
-            })
-        
-        # Evaluate distilled model if available
-        if evaluate_distilled:
-            # Load pre-trained distilled model
-            print("  → Loading pre-trained distilled model...", end="", flush=True)
-            distilled_model = load_distilled_model(model_name)
-            
-            if distilled_model is None:
-                print(f" | Skipping {model_name} - no distilled model found")
-            else:
-                # Evaluate distilled model
-                distilled_clean_acc = evaluate_model(distilled_model, data_loader)
-                print(f" | Distilled clean acc: {distilled_clean_acc:.2f}%")
-                
-                # Test attacks on distilled model
-                distilled_attacks = create_attacks(distilled_model)
-                
-                # Individual attacks on distilled model
-                for attack_name, attack in distilled_attacks.items():
-                    adv_acc, attack_time, num_samples = run_attack_evaluation(
-                        distilled_model, attack, data_loader, attack_name
+
+            if not os.path.exists(model_path):
+                print(f" {model_type.capitalize()} model not found: {model_path}")
+                continue
+
+            print(f"\n--- {model_type.capitalize()} Model ---")
+
+            # Load model
+            model = torch.hub.load(
+                "chenyaofo/pytorch-cifar-models",
+                model_name,
+                pretrained=False,
+                trust_repo=True,
+            ).to(device)
+            model.load_state_dict(torch.load(model_path, map_location=device))
+
+            # Evaluate clean accuracy
+            clean_acc = evaluate_model(model, test_loader, device)
+            print(f"Clean accuracy: {clean_acc:.2f}%")
+
+            # Test each attack
+            for attack_name, attack_constructor in attacks.items():
+                print(f"  {attack_name}:", end=" ")
+
+                if attack_constructor is not None:
+                    attack = attack_constructor(model)
+                    adv_acc, attack_time = evaluate_attack(
+                        model, test_loader, attack, device, attack_name, eps, alpha
                     )
-                    accuracy_drop = distilled_clean_acc - adv_acc
-                    
-                    all_results.append({
-                        'model': model_name,
-                        'dataset': dataset_name,
-                        'defense': 'Distillation',
-                        'attack': attack_name,
-                        'clean_acc': round(distilled_clean_acc, 2),
-                        'adv_acc': round(adv_acc, 2),
-                        'accuracy_drop': round(accuracy_drop, 2),
-                        'attack_time_s': round(attack_time, 2),
-                        'num_samples': num_samples
-                    })
-                
-                # Ensemble attacks on distilled model
-                for ensemble_name in ['MEA', 'WEA']:
-                    adv_acc, attack_time, num_samples = run_attack_evaluation(
-                        distilled_model, None, data_loader, ensemble_name
+                else:
+                    # Custom attacks (BIM, MEA, WEA)
+                    adv_acc, attack_time = evaluate_attack(
+                        model, test_loader, None, device, attack_name, eps, alpha
                     )
-                    accuracy_drop = distilled_clean_acc - adv_acc
-                    
-                    all_results.append({
-                        'model': model_name,
-                        'dataset': dataset_name,
-                        'defense': 'Distillation',
-                        'attack': ensemble_name,
-                        'clean_acc': round(distilled_clean_acc, 2),
-                        'adv_acc': round(adv_acc, 2),
-                        'accuracy_drop': round(accuracy_drop, 2),
-                        'attack_time_s': round(attack_time, 2),
-                        'num_samples': num_samples
-                    })
-    
-    # Save results
+
+                # Calculate accuracy drop according to paper formula
+                dropped_percentage = ((clean_acc - adv_acc) / clean_acc) * 100
+
+                print(
+                    f"{clean_acc:.1f}% → {adv_acc:.1f}% (Dropped: {dropped_percentage:.1f}%) [{attack_time:.1f}s]"
+                )
+
+                all_results.append(
+                    {
+                        "model_name": model_name,
+                        "dataset": dataset_name.upper(),
+                        "model_type": model_type.capitalize(),
+                        "attack": attack_name,
+                        "clean_acc": round(clean_acc, 2),
+                        "adv_acc": round(adv_acc, 2),
+                        "dropped_percentage": round(dropped_percentage, 1),
+                        "attack_time": round(attack_time, 2),
+                        "num_samples": len(test_subset),
+                    }
+                )
+
+    # Save comprehensive results
     df = pd.DataFrame(all_results)
-    output_file = os.path.join(RESULTS_DIR, "complete_adversarial_evaluation.csv")
+    os.makedirs(results_dir, exist_ok=True)
+    output_file = os.path.join(results_dir, "comprehensive_attack_evaluation.csv")
     df.to_csv(output_file, index=False)
-    print(f"\n✓ Complete results saved to {output_file}")
-    
+
+    print(f"\n{'='*60}")
+    print(f"COMPREHENSIVE RESULTS SUMMARY")
+    print(f"{'='*60}")
+
     # Print summary statistics
-    print("\n=== SUMMARY ===")
-    if evaluate_distilled:
-        summary = df.groupby(['attack', 'defense']).agg({
-            'accuracy_drop': ['mean', 'std'],
-            'adv_acc': ['mean', 'std']
-        }).round(2)
-        print(summary)
-        print(f"\nDistilled models evaluated: ✓")
-    else:
-        summary = df.groupby(['attack']).agg({
-            'accuracy_drop': ['mean', 'std'], 
-            'adv_acc': ['mean', 'std']
-        }).round(2)
-        print(summary)
-        print(f"\nDistilled models evaluated: ✗ (run distillation script first)")
+    print(f"\nModels tested: {len(models)}")
+    print(f"Total evaluations: {len(all_results)}")
+    print(f"Results saved to: {output_file}")
+
+    # Show sample results
+    print(f"\nSample Results (first 10 rows):")
+    print(df.head(10).to_string(index=False))
+
+    print(f"\nComprehensive evaluation completed!")
+
 
 if __name__ == "__main__":
-    freeze_support()
     main()

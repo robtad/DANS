@@ -24,11 +24,18 @@
    - Perform a detailed comparison and analysis of results.
 
 6. **Develop and Test New Methods**
+
    - Develop new and improved attack and defense methods.
    - Test the new attack and defense methods for effectiveness.
 
-7. **Make csv output columns uniform 
+7. \*\*Make csv output columns uniform
    - use the same samples per class
    - add sample per class column (instead of num sample(total sample))
    - add accuracy drop
-   - 
+   -
+
+- other eval metrics (f1, recall, acc)
+- different weights
+- add other models (cnn based, other versions of mobilenet)
+- more datasets (tiny imagenet, mnist)
+- early stopping for distillation

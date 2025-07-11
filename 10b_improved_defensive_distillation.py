@@ -6,12 +6,13 @@ import torchvision.transforms as transforms
 import os
 import csv
 
+
 def main():
     # Local directories
-    model_dir = './models'
-    data_dir = './data'
-    distilled_model_dir = './models_distilled'
-    results_csv = './results/defensive_distillation_results.csv'
+    model_dir = "./models"
+    data_dir = "./data"
+    distilled_model_dir = "./models_distilled"
+    results_csv = "./results/defensive_distillation_results.csv"
 
     os.makedirs(distilled_model_dir, exist_ok=True)
     os.makedirs(os.path.dirname(results_csv), exist_ok=True)
@@ -34,9 +35,9 @@ def main():
     # Define distillation loss
     def distillation_loss(student_outputs, teacher_outputs, labels, T, alpha):
         hard_loss = nn.CrossEntropyLoss()(student_outputs, labels)
-        soft_loss = nn.KLDivLoss(reduction='batchmean')(
+        soft_loss = nn.KLDivLoss(reduction="batchmean")(
             nn.functional.log_softmax(student_outputs / T, dim=1),
-            nn.functional.softmax(teacher_outputs / T, dim=1)
+            nn.functional.softmax(teacher_outputs / T, dim=1),
         ) * (T * T)
         return alpha * hard_loss + (1 - alpha) * soft_loss
 
@@ -56,66 +57,93 @@ def main():
 
     # Models to distill
     models = [
-        'cifar10_resnet20',
-        'cifar100_resnet20',
-        'cifar10_resnet32',
-        'cifar100_resnet32',
-        'cifar10_resnet44',
-        'cifar100_resnet44',
-        'cifar10_resnet56',
-        'cifar100_resnet56',
-        'cifar10_mobilenetv2_x1_4',
-        'cifar100_mobilenetv2_x1_4',
-        'cifar10_vgg16_bn',
-        'cifar100_vgg16_bn',
-        'cifar10_vgg11_bn',
-        'cifar100_vgg11_bn'
+        "cifar10_resnet20",
+        "cifar100_resnet20",
+        "cifar10_resnet32",
+        "cifar100_resnet32",
+        "cifar10_resnet44",
+        "cifar100_resnet44",
+        "cifar10_resnet56",
+        "cifar100_resnet56",
+        "cifar10_mobilenetv2_x1_4",
+        "cifar100_mobilenetv2_x1_4",
+        "cifar10_vgg16_bn",
+        "cifar100_vgg16_bn",
+        "cifar10_vgg11_bn",
+        "cifar100_vgg11_bn",
     ]
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # CSV file to store results
-    with open(results_csv, mode='w', newline='') as f:
+    with open(results_csv, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(['student_model_name', 'teacher_accuracy', 'student_accuracy', 'difference'])
+        writer.writerow(
+            ["student_model_name", "teacher_accuracy", "student_accuracy", "difference"]
+        )
 
         for model_name in models:
             print(f"\nDistilling {model_name}...")
 
             # Determine CIFAR type
-            if 'cifar100' in model_name:
+            if "cifar100" in model_name:
                 num_classes = 100
                 mean, std = mean100, std100
-                train_dataset = torchvision.datasets.CIFAR100(root=data_dir, train=True, download=True,
-                                                            transform=transforms.Compose([
-                                                                transforms.ToTensor(),
-                                                                transforms.Normalize(mean, std)
-                                                            ]))
-                test_dataset = torchvision.datasets.CIFAR100(root=data_dir, train=False, download=True,
-                                                            transform=transforms.Compose([
-                                                                transforms.ToTensor(),
-                                                                transforms.Normalize(mean, std)
-                                                            ]))
+                train_dataset = torchvision.datasets.CIFAR100(
+                    root=data_dir,
+                    train=True,
+                    download=True,
+                    transform=transforms.Compose(
+                        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+                    ),
+                )
+                test_dataset = torchvision.datasets.CIFAR100(
+                    root=data_dir,
+                    train=False,
+                    download=True,
+                    transform=transforms.Compose(
+                        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+                    ),
+                )
             else:
                 num_classes = 10
                 mean, std = mean10, std10
-                train_dataset = torchvision.datasets.CIFAR10(root=data_dir, train=True, download=True,
-                                                            transform=transforms.Compose([
-                                                                transforms.ToTensor(),
-                                                                transforms.Normalize(mean, std)
-                                                            ]))
-                test_dataset = torchvision.datasets.CIFAR10(root=data_dir, train=False, download=True,
-                                                            transform=transforms.Compose([
-                                                                transforms.ToTensor(),
-                                                                transforms.Normalize(mean, std)
-                                                            ]))
+                train_dataset = torchvision.datasets.CIFAR10(
+                    root=data_dir,
+                    train=True,
+                    download=True,
+                    transform=transforms.Compose(
+                        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+                    ),
+                )
+                test_dataset = torchvision.datasets.CIFAR10(
+                    root=data_dir,
+                    train=False,
+                    download=True,
+                    transform=transforms.Compose(
+                        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+                    ),
+                )
 
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+            train_loader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=2
+            )
+            test_loader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=batch_size, shuffle=False, num_workers=2
+            )
 
             # Load teacher model
-            teacher = torch.hub.load('chenyaofo/pytorch-cifar-models', model_name, pretrained=False, trust_repo=True)
-            teacher.load_state_dict(torch.load(os.path.join(model_dir, f'{model_name}.pth'), map_location=device))
+            teacher = torch.hub.load(
+                "chenyaofo/pytorch-cifar-models",
+                model_name,
+                pretrained=False,
+                trust_repo=True,
+            )
+            teacher.load_state_dict(
+                torch.load(
+                    os.path.join(model_dir, f"{model_name}.pth"), map_location=device
+                )
+            )
             teacher.to(device)
             teacher.eval()
 
@@ -124,7 +152,12 @@ def main():
             print(f"Teacher accuracy: {teacher_acc:.2f}%")
 
             # Create student with the same architecture
-            student = torch.hub.load('chenyaofo/pytorch-cifar-models', model_name, pretrained=False, trust_repo=True)
+            student = torch.hub.load(
+                "chenyaofo/pytorch-cifar-models",
+                model_name,
+                pretrained=False,
+                trust_repo=True,
+            )
             student.to(device)
 
             # Optimizer
@@ -140,7 +173,9 @@ def main():
                         teacher_outputs = teacher(imgs)
                     student_outputs = student(imgs)
 
-                    loss = distillation_loss(student_outputs, teacher_outputs, labels, temperature, alpha)
+                    loss = distillation_loss(
+                        student_outputs, teacher_outputs, labels, temperature, alpha
+                    )
 
                     optimizer.zero_grad()
                     loss.backward()
@@ -148,10 +183,14 @@ def main():
 
                     running_loss += loss.item()
 
-                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}")
+                print(
+                    f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}"
+                )
 
             # Save distilled model
-            distilled_model_path = os.path.join(distilled_model_dir, f'{model_name}_distilled.pth')
+            distilled_model_path = os.path.join(
+                distilled_model_dir, f"{model_name}_distilled.pth"
+            )
             torch.save(student.state_dict(), distilled_model_path)
             print(f"Distilled model saved to {distilled_model_path}")
 
@@ -164,10 +203,16 @@ def main():
             print(f"Accuracy difference: {diff:.2f}%")
 
             # Write result to CSV
-            writer.writerow([f'{model_name}_distilled', f'{teacher_acc:.2f}', f'{student_acc:.2f}', f'{diff:.2f}'])
+            writer.writerow(
+                [
+                    f"{model_name}_distilled",
+                    f"{teacher_acc:.2f}",
+                    f"{student_acc:.2f}",
+                    f"{diff:.2f}",
+                ]
+            )
 
     print("\nAll models distilled, evaluated, and results saved successfully!")
-
 
 
 if __name__ == "__main__":

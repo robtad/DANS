@@ -2,5 +2,10 @@
 data/
 torch_cache/
 exported/
+*.pptx
+*.pdf
+models/
+models_distilled/
+venv/
 
 
